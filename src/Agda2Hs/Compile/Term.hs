@@ -194,12 +194,14 @@ compileVar :: Nat -> C String
 compileVar x = do
   (d, n) <- (fmap snd &&& fst . unDom) <$> lookupBV x
   let cn = prettyShow $ nameConcrete n
-  let b | notVisible d   = "hidden"
-        | hasQuantity0 d = "erased"
-        | otherwise      = ""
-  whenM (asks checkVar) $ unless (null b) $ genericDocError =<<
-    text ("Cannot use " <> b <> " variable " <> cn)
-  return cn
+  if isInstance d then return "" -- a temporary, quite ugly solution to hide instance variables
+  else do
+    let b | notVisible d   = "hidden"
+          | hasQuantity0 d = "erased"
+          | otherwise      = ""
+    whenM (asks checkVar) $ unless (null b) $ genericDocError =<<
+      text ("Cannot use " <> b <> " variable " <> cn)
+    return cn
 
 compileTerm :: Term -> C (Hs.Exp ())
 compileTerm v = do

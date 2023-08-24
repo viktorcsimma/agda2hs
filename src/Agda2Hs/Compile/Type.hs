@@ -15,6 +15,7 @@ import Agda.Compiler.Backend hiding ( Args )
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal
+import Agda.Syntax.Abstract.Name ( qualify_ )
 
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Reduce ( reduce )
@@ -25,12 +26,12 @@ import Agda.Utils.Impossible ( __IMPOSSIBLE__ )
 import Agda.Utils.Pretty ( prettyShow )
 import Agda.Utils.List ( downFrom )
 import Agda.Utils.Maybe ( ifJustM, fromMaybe )
-import Agda.Utils.Monad ( ifM, unlessM )
+import Agda.Utils.Monad ( ifM, unlessM, mapMaybeM )
 import Agda.Utils.Size ( Sized(size) )
 import Agda.Utils.Functor ( ($>) )
 
 import Agda2Hs.AgdaUtils
-import Agda2Hs.Compile.Name ( compileQName )
+import Agda2Hs.Compile.Name ( compileQName, compileName )
 import Agda2Hs.Compile.Term ( compileVar )
 import Agda2Hs.Compile.Types
 import Agda2Hs.Compile.Utils
@@ -133,16 +134,31 @@ compileType t = do
           vs <- compileTypeArgs args
           f <- compileQName f
           return $ tApp (Hs.TyCon () f) vs
-    Var x es | Just args <- allApplyElims es -> do
+    Var x es -> do
       unlessM (usableModality <$> lookupBV x) $ genericDocError =<<
         text "Not supported by agda2hs: erased type variable" <+> prettyTCM (var x)
-      vs <- compileTypeArgs args
+      vs <- mapMaybeM compileTypeElim es
       x  <- hsName <$> compileVar x
       return $ tApp (Hs.TyVar () x) vs
     Sort s -> return (Hs.TyStar ())
     Lam argInfo restAbs
       | not (keepArg argInfo)   -> underAbstraction_ restAbs compileType
-    _ -> genericDocError =<< text "Bad Haskell type:" <?> prettyTCM t
+    _ -> genericDocError =<< (text $ "Bad Haskell type: " ++ show t)
+
+-- Creates a type from an Elim.
+-- Returns Nothing if the Arg inside an Apply constructor is erased.
+-- Throws if a Proj is not from a type class module.
+compileTypeElim :: Elim -> C (Maybe (Hs.Type ()))
+compileTypeElim (Apply arg)
+  | keepArg arg     = (compileType $ unArg arg) >>= (return . Just)
+  | otherwise       = return Nothing
+compileTypeElim (Proj _ qname) = do
+  isClass <- isClassFunction qname
+  if isClass then do
+    reportSDoc "agda2hs.compile" 1 $ text "Test: " <+> prettyTCM qname
+    hsQName <- compileQName $ qualify_ $ qnameName qname    -- qualify_ makes a QName from it, but with no module name
+    return $ Just $ Hs.TyCon () hsQName
+  else genericDocError =<< text "Bad Haskell type projection: " <+> prettyTCM qname
 
 compileTypeArgs :: Args -> C [Hs.Type ()]
 compileTypeArgs args = mapM (compileType . unArg) $ filter keepArg args
