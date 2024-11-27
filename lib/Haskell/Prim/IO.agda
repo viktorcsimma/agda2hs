@@ -5,6 +5,7 @@ open import Haskell.Prim.Show
 open import Haskell.Prim.String
 
 postulate IO : ∀{a} → Set a → Set a
+{-# BUILTIN IO IO #-}
 
 FilePath = String
 
@@ -25,3 +26,5 @@ postulate
   readFile       : FilePath → IO String
   writeFile      : FilePath → String → IO ⊤
   appendFile     : FilePath → String → IO ⊤
+
+  
